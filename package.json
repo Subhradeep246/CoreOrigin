@@ -1,6 +1,6 @@
 {
-  "name": "coinorigin",
-  "version": "0.1.0",
+  "name": "voia",
+  "version": "0.2.0",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -9,16 +9,14 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "next build && node --import tsx --test tests/*.test.ts && node --test tests/*.test.mjs",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "db:generate": "drizzle-kit generate",
-    "setup:agent": "node --env-file-if-exists=.env.local --env-file-if-exists=.dev.vars scripts/configure-elevenlabs.mjs",
-    "setup:phone": "node --env-file-if-exists=.env.local --env-file-if-exists=.dev.vars scripts/connect-twilio.mjs"
+    "lint": "eslint . --ignore-pattern .next",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts && node --test tests/*.test.mjs"
   },
   "dependencies": {
-    "@elevenlabs/react": "^1.10.0",
-    "@libsql/client": "^0.15.15",
-    "drizzle-orm": "0.45.2",
+    "@google/genai": "^1.35.0",
+    "hash-wasm": "^4.12.0",
+    "idb": "^8.0.3",
     "lucide-react": "^1.24.0",
     "next": "^16.2.10",
     "react": "19.2.6",
@@ -31,7 +29,6 @@
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
-    "drizzle-kit": "0.31.10",
     "eslint": "9.39.4",
     "eslint-config-next": "^16.2.10",
     "tailwindcss": "4.2.1",

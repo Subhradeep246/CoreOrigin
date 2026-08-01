@@ -1,40 +1,45 @@
-import { ensureDatabase, storageBackend } from "@/db/runtime";
-import { ELEVENLABS_AGENT_ID, getEnv } from "@/lib/runtime-env";
-import { getVerifyServiceSid } from "@/lib/twilio";
+/**
+ * GET /api/health — integration readiness report.
+ *
+ * Reports only booleans, product-authored messages, and environment variable
+ * NAMES. No secret value is ever read into the response: the model NAME is not a
+ * secret, but the API key must never appear here (or anywhere else).
+ *
+ * There is no database to check. Patient data lives only in the encrypted
+ * browser-local vault, which is why `storage` is a constant.
+ */
+
+import { googleAiConfigError } from "@/lib/server/google-ai";
+import { adapterModeError } from "@/lib/server/hospital-booking";
+import { jsonNoStore } from "@/lib/server/request-security";
+import { tavilyConfigError } from "@/lib/server/tavily";
+import { twilioConfigError } from "@/lib/server/twilio";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+type Check = { configured: boolean; error: string | null };
+
+function check(error: string | null): Check {
+  return { configured: error === null, error };
+}
 
 export async function GET() {
-  let database = true;
-  try {
-    await ensureDatabase();
-  } catch {
-    database = false;
-  }
+  const checks = {
+    googleAi: check(googleAiConfigError()),
+    tavily: check(tavilyConfigError()),
+    twilioVerify: check(twilioConfigError("verify")),
+    twilioSms: check(twilioConfigError("sms")),
+    hospitalAdapter: check(adapterModeError()),
+  } satisfies Record<string, Check>;
 
-  const services = {
-    database,
-    storage: storageBackend(),
-    elevenlabsAgent: Boolean(ELEVENLABS_AGENT_ID),
-    privateVoiceSessions: Boolean(getEnv("ELEVENLABS_API_KEY")),
-    providerSearch: Boolean(getEnv("NIMBLE_API_KEY")),
-    sms:
-      Boolean(getEnv("TWILIO_ACCOUNT_SID")) &&
-      Boolean(getEnv("TWILIO_API_SECRET") ?? getEnv("TWILIO_AUTH_TOKEN")) &&
-      Boolean(getEnv("TWILIO_PHONE_NUMBER") ?? getEnv("TWILIO_MESSAGING_SERVICE_SID") ?? getVerifyServiceSid()),
-    otpVerify: Boolean(getVerifyServiceSid()),
-    signedTwilioWebhooks: Boolean(getEnv("TWILIO_AUTH_TOKEN")),
-    signedElevenLabsWebhooks: Boolean(getEnv("ELEVENLABS_WEBHOOK_SECRET")),
-    encryptedContactStorage: Boolean(getEnv("DATA_ENCRYPTION_KEY")),
-    registrationSessions: Boolean(getEnv("SESSION_SIGNING_SECRET") ?? getEnv("VOIA_TOOL_SECRET") ?? getEnv("PII_HASH_SALT")),
-  };
+  const degraded = Object.values(checks).some((entry) => entry.error !== null);
 
-  const ready = services.database && services.elevenlabsAgent;
-  return Response.json(
-    {
-      status: ready ? "ok" : "degraded",
-      mode: getEnv("PRODUCT_MODE") ?? "demo",
-      services,
-      screening: { enabled: false, reason: "Validated screening model not configured" },
-    },
-    { status: ready ? 200 : 503, headers: { "cache-control": "no-store" } },
-  );
+  return jsonNoStore({
+    status: degraded ? "degraded" : "ok",
+    storage: "browser-local-vault",
+    productMode: process.env.PRODUCT_MODE ?? "unset",
+    model: process.env.GOOGLE_AI_MODEL ?? "unset",
+    checks,
+  });
 }
