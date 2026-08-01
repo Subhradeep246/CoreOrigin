@@ -1,0 +1,23 @@
+---
+description: Patients must register on the website before they can call or use voice/chat with Voia
+alwaysApply: true
+---
+
+# Register before call
+
+Patients must be **registered on the website** before they can use Voia voice, chat, or phone calling.
+
+## Rules
+
+- Never allow anonymous web voice/chat sessions. Issue conversation tokens only for a verified registered session.
+- Never connect inbound phone callers to the agent unless their caller ID matches a registered patient.
+- Registration is phone-based (E.164 + SMS OTP). Do **not** require a full name.
+- Care-data consent is collected at registration. Calling/chat is unlocked only after OTP verification.
+- Unregistered phone callers get a short message directing them to register on the website first (and emergency guidance if needed).
+- Appointment booking and care tools remain available only in the context of a registered patient where session checks apply.
+
+## When changing related code
+
+- Keep `/api/elevenlabs/token` session-gated.
+- Keep `/api/webhooks/twilio/voice` registration-gated.
+- Preserve the register → verify OTP → session cookie → call/chat flow in the UI.
