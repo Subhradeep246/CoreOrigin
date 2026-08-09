@@ -11,7 +11,10 @@
     "start": "next start",
     "lint": "eslint . --ignore-pattern .next",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test tests/*.test.ts && node --test tests/*.test.mjs"
+    "factory": "node --env-file=.env.local --import tsx scripts/factory.ts",
+    "link": "node --env-file=.env.local --import tsx scripts/link-account.ts",
+    "ring": "node --env-file=.env.local --import tsx scripts/ring.ts",
+    "test": "node --import tsx --test \"tests/**/*.test.{ts,mjs}\""
   },
   "dependencies": {
     "@google/genai": "^1.35.0",
@@ -21,7 +24,9 @@
     "next": "^16.2.10",
     "react": "19.2.6",
     "react-dom": "19.2.6",
+    "supafone-labs": "^0.4.10",
     "twilio": "^6.0.2",
+    "ultravox-client": "^0.6.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

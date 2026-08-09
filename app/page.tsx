@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
-import { VoiaExperience } from "./components/VoiaExperience";
+import Link from "next/link";
+import { AppShell } from "@/components/AppShell";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
@@ -34,6 +35,40 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
+/**
+ * Home.
+ *
+ * The previous implementation rendered `<VoiaExperience />`, a component that
+ * is not present in the repository — the import broke the dev compilation for
+ * EVERY route, not just this one. Until that component lands, this is a small
+ * working landing page that keeps the shell and points at the shipped surface.
+ */
 export default function Home() {
-  return <VoiaExperience />;
+  return (
+    <AppShell>
+      <section className="hero">
+        <div className="hero-copy">
+          <p className="eyebrow">CoinOrigin</p>
+          <h1>
+            Turn any website into a <em>callable AI receptionist</em>
+          </h1>
+          <p className="hero-lede">
+            Paste a company URL. Supafone scrapes the site, builds its knowledge base,
+            generates the agent graph and tools, provisions a number, and launches a
+            working voice agent — in under two minutes.
+          </p>
+          <div className="hero-actions">
+            <Link href="/factory" className="primary-button">
+              Open the Agent Factory
+            </Link>
+          </div>
+          <div className="hero-proof">
+            <span>Scrape → knowledge base → agent graph</span>
+            <span>Adversarial QA before launch</span>
+            <span>Managed number, no Twilio account</span>
+          </div>
+        </div>
+      </section>
+    </AppShell>
+  );
 }
