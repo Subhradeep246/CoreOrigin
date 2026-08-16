@@ -225,7 +225,7 @@ a { color: inherit; }
 .muted-copy { font-size: 11px; }
 .demo-code-banner { margin: 0 0 10px; padding: 10px 12px; border-radius: 12px; background: #eef6ea; color: #23401d; font-size: 12px; }
 .demo-code-banner span { display: block; margin-top: 4px; color: #4d6b45; font-size: 11px; }
-.secondary-button { border: 1px solid var(--forest); background: transparent; color: var(--forest); border-radius: 999px; padding: 10px 15px; font-weight: 700; cursor: pointer; }
+.secondary-button { min-height: 50px; border: 1px solid var(--forest); background: transparent; color: var(--forest); border-radius: 999px; padding: 0 22px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
 
 .how-section { max-width: 1160px; margin: 0 auto; padding: 120px 30px; }
 .section-heading.centered { margin-inline: auto; text-align: center; }

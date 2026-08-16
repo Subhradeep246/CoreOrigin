@@ -1,7 +1,7 @@
 /**
  * POST /api/watch — the self-healing watcher's coaching turn.
  *
- * Body: { transcript, guardrails?, objective?, sessionId?, agent? }
+ * Body: { transcript, guardrails?, objective?, sessionId?, agent?, languages? }
  * 200:  { directive, injected, model }
  *
  * `directive` is "" when the agent needs no correction, which is the common
@@ -34,6 +34,7 @@ export async function POST(req: NextRequest) {
     objective?: string;
     sessionId?: string;
     agent?: string;
+    languages?: string[];
   };
   try {
     body = await req.json();
@@ -52,6 +53,7 @@ export async function POST(req: NextRequest) {
       transcript: transcript.slice(-MAX_TRANSCRIPT),
       guardrails: body.guardrails,
       objective: body.objective,
+      languages: Array.isArray(body.languages) ? body.languages.slice(0, 4) : undefined,
     });
 
     if (directive) {

@@ -24,6 +24,7 @@ import {
   productAuthConfig,
   ensureProductAccount,
   sendMagicLink,
+  expectedAccountEmail,
 } from "@/lib/server/supafone";
 
 const flag = (n: string) => process.argv.includes(`--${n}`);
@@ -56,9 +57,19 @@ async function main() {
   }
 
   const who = (await introspectKey()) as { email?: string; plan?: string; active?: boolean };
-  const email = who.email ?? "";
-  console.log(`\nLabs key owner : ${email}`);
+  const email = (who.email ?? "").trim();
+  const expected = expectedAccountEmail();
+  console.log(`\nLabs key owner : ${email || "(none reported)"}`);
+  console.log(`Expected match : ${expected}`);
   console.log(`Plan / active  : ${who.plan} / ${who.active}\n`);
+
+  if (email && email.toLowerCase() !== expected) {
+    console.error(
+      `The Labs key is registered to ${email}, but the product account is ${expected}.\n` +
+        "Supafone matches by email — use a key issued to that NYU address, or sign up Labs with it.",
+    );
+    process.exit(1);
+  }
 
   if (await status()) return;
   if (!email) {

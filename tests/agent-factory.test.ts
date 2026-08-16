@@ -13,7 +13,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { extractJson, sanitizeDirective } from "@/lib/server/supafone";
-import { compileAgentPrompt, type AgentGraph } from "@/lib/server/agent-factory";
+import { compileAgentPrompt, normalizeLanguages, type AgentGraph } from "@/lib/server/agent-factory";
 
 /* ------------------------------------------------------------------ */
 /* extractJson                                                         */
@@ -129,6 +129,18 @@ test("compileAgentPrompt includes identity, greeting, tools, knowledge and goal"
   assert.match(p, /Cleanings; Whitening/);
 });
 
+test("compileAgentPrompt bakes in multilingual continuity and the silent supervisor", () => {
+  const p = compileAgentPrompt(graph({ languages: ["en", "es"] }));
+  assert.match(p, /Approved languages: en, es/);
+  assert.match(p, /never restart the call/i);
+  assert.match(p, /\[SUPERVISOR — silent note, do not read aloud\]/);
+});
+
+test("compileAgentPrompt defaults languages to en when the graph omitted them", () => {
+  const p = compileAgentPrompt(graph({ languages: undefined }));
+  assert.match(p, /Approved languages: en/);
+});
+
 test("compileAgentPrompt omits blank contact fields instead of printing empties", () => {
   const p = compileAgentPrompt(graph());
   assert.ok(!/Phone:\s*\|/.test(p), "empty phone must not be emitted");
@@ -205,4 +217,10 @@ test("sanitizeDirective leaves a clean directive untouched", () => {
 test("sanitizeDirective does not mistake a directive containing 'none' for silence", () => {
   const d = "Tell her none of the plans include phone support.";
   assert.equal(sanitizeDirective(d), d);
+});
+
+test("normalizeLanguages keeps at most four valid tags and defaults to en", () => {
+  assert.deepEqual(normalizeLanguages(undefined), ["en"]);
+  assert.deepEqual(normalizeLanguages(["EN", "es-MX", "not-a-lang", "hi"]), ["en", "es-mx", "hi"]);
+  assert.deepEqual(normalizeLanguages(["en", "es", "fr", "de", "ja"]), ["en", "es", "fr", "de"]);
 });

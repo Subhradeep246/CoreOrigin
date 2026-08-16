@@ -90,12 +90,18 @@ export function TalkToAgent({
   businessName,
   guardrails,
   objective,
+  languages: approvedLanguages = [],
+  novaDefault = false,
 }: {
   agentId: string;
   assistantName: string;
   businessName: string;
   guardrails?: string;
   objective?: string;
+  /** Language profile from the scrape/graph; nova-3 tags overlay this live. */
+  languages?: string[];
+  /** Start the nova-3 multilingual mic tap with the call. */
+  novaDefault?: boolean;
 }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [status, setStatus] = useState("");
@@ -106,7 +112,7 @@ export function TalkToAgent({
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
 
   // Deepgram nova-3 multilingual tap.
-  const [novaOn, setNovaOn] = useState(false);
+  const [novaOn, setNovaOn] = useState(novaDefault);
   const [novaLines, setNovaLines] = useState<NovaLine[]>([]);
   const [novaSeconds, setNovaSeconds] = useState(0);
   const [novaError, setNovaError] = useState<string | null>(null);
@@ -128,12 +134,19 @@ export function TalkToAgent({
   const tapRecorderRef = useRef<MediaRecorder | null>(null);
   const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tapActiveRef = useRef(false);
+  const languagesRef = useRef<string[]>(approvedLanguages);
 
   /* ------------------- self-healing watcher ------------------- */
 
   useEffect(() => {
     watchOnRef.current = watchOn;
   }, [watchOn]);
+
+  useEffect(() => {
+    if (languagesRef.current.length === 0 && approvedLanguages.length) {
+      languagesRef.current = approvedLanguages;
+    }
+  }, [approvedLanguages]);
 
   /**
    * One coaching turn: read the conversation so far, ask the oracle whether
@@ -167,6 +180,7 @@ export function TalkToAgent({
           objective,
           sessionId: agentId,
           agent: assistantName,
+          languages: languagesRef.current,
         }),
       });
       const data = (await res.json()) as { directive?: string; error?: string };
@@ -224,10 +238,12 @@ export function TalkToAgent({
       setNovaSeconds((s) => s + (data.duration ?? 0));
       const text = (data.transcript ?? "").trim();
       if (text) {
-        setNovaLines((l) => [
-          ...l,
-          { text, languages: data.languages ?? [], seconds: data.duration ?? 0 },
-        ]);
+        setNovaLines((l) => {
+          const next = [...l, { text, languages: data.languages ?? [], seconds: data.duration ?? 0 }];
+          const langs = [...new Set([...approvedLanguages, ...next.flatMap((n) => n.languages)])];
+          languagesRef.current = langs;
+          return next;
+        });
       }
     } catch (e) {
       setNovaError(e instanceof Error ? e.message : String(e));

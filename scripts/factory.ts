@@ -9,8 +9,8 @@
  *
  * Flags:
  *   --url <url>        (required) the company website to turn into an agent
- *   --provision        buy a managed number + create the hosted inbound agent
- *                      (needs a matching app.supafone.ai account: `npm run link`)
+ *   --provision        buy a managed number (implies launching the hosted agent)
+ *   --no-launch        skip creating the hosted agent (no WebRTC talk)
  *   --area-code <nnn>  preferred area code for the managed number
  *   --phone <e164>     phone number for the optional live call
  *   --call             place the live call (implies --provision, since the API
@@ -73,6 +73,7 @@ async function main() {
     qaCount: arg("qa-count") ? Number(arg("qa-count")) : 3,
     qaTurns: arg("qa-turns") ? Number(arg("qa-turns")) : 2,
     makeVoiceSample: flag("voice"),
+    launchAgent: !flag("no-launch"),
     provision: flag("provision"),
     areaCode: arg("area-code"),
     placeCall: flag("call"),

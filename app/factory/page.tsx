@@ -35,6 +35,7 @@ interface GraphT {
   tools: ToolT[];
   faqs: FaqT[];
   guardrails: string[];
+  languages?: string[];
   objective: { goal: string; criteria: { name: string; description?: string }[] };
 }
 interface ProvisionT {
@@ -73,7 +74,7 @@ const STEP_LABELS: Record<string, string> = {
   objective: "Set success objective",
   qa: "Adversarial QA suite",
   voice: "Render voice sample",
-  provision: "Provision number + launch agent",
+  provision: "Launch hosted agent (WebRTC + Voice Watcher)",
   call: "Place live call",
   complete: "Done",
 };
@@ -94,8 +95,8 @@ type StepState = "pending" | "running" | "done" | "skipped";
 export default function FactoryPage() {
   const [url, setUrl] = useState("");
   const [phone, setPhone] = useState("");
-  const [runQa, setRunQa] = useState(true);
-  const [voice, setVoice] = useState(true);
+  const [runQa, setRunQa] = useState(false);
+  const [voice, setVoice] = useState(false);
   const [provision, setProvision] = useState(false);
   const [areaCode, setAreaCode] = useState("");
   const [call, setCall] = useState(false);
@@ -197,8 +198,9 @@ export default function FactoryPage() {
         </h1>
         <p style={lede}>
           Paste a company website. Supafone scrapes the site, builds a knowledge base, generates the
-          agent graph and tools, configures a voice agent, and validates it with an adversarial test
-          suite — a callable AI receptionist in under two minutes.
+          agent graph and tools, launches a hosted agent with Voice Watcher and multilingual
+          continuity, and lets you talk to it in the browser over WebRTC — a callable receptionist
+          in under two minutes. Buying a PSTN number is optional.
         </p>
 
         {/* input card */}
@@ -249,7 +251,7 @@ export default function FactoryPage() {
             <Toggle label="Run adversarial QA" checked={runQa} onChange={setRunQa} disabled={busy} />
             <Toggle label="Render voice sample" checked={voice} onChange={setVoice} disabled={busy} />
             <Toggle
-              label="Provision number + launch agent"
+              label="Buy a phone number"
               checked={provision || call}
               onChange={setProvision}
               disabled={busy || call}
@@ -278,7 +280,6 @@ export default function FactoryPage() {
                 (s) =>
                   !(s === "qa" && !runQa) &&
                   !(s === "voice" && !voice) &&
-                  !(s === "provision" && !provision && !call) &&
                   !(s === "call" && !call),
               ).map((s) => {
                 const st = steps[s]?.state ?? "pending";
@@ -318,6 +319,9 @@ export default function FactoryPage() {
               <span style={{ color: "var(--ink-soft)", fontSize: 12 }}>
                 {" "}
                 · voice {result.graph.assistant.voice} · {result.graph.assistant.persona}
+                {result.graph.languages?.length
+                  ? ` · languages ${result.graph.languages.join(", ")}`
+                  : ""}
               </span>
               <p style={{ margin: "8px 0 0", fontStyle: "italic" }}>“{result.graph.assistant.greeting}”</p>
               {audioSrc && (
@@ -396,8 +400,8 @@ export default function FactoryPage() {
                   <p style={{ margin: "6px 0 0", fontSize: 13 }}>{result.provision.message}</p>
                   {!result.provision.linked ? (
                     <p style={{ margin: "6px 0 0", fontSize: 12, color: "var(--ink-soft)" }}>
-                      Run <code style={code}>npm run link -- --create</code>, then re-run. Everything
-                      else above is already built.
+                      The product account is <code style={code}>sa9457@nyu.edu</code>. Use a Labs key
+                      issued to that email, then <code style={code}>npm run link -- --create</code>.
                     </p>
                   ) : (
                     <p style={{ margin: "6px 0 0", fontSize: 12, color: "var(--ink-soft)" }}>
@@ -410,15 +414,27 @@ export default function FactoryPage() {
             )}
 
             {/* Live browser voice — works with no telephony and no number. */}
-            {result.provision?.agentId && (
+            {result.provision?.agentId ? (
               <TalkToAgent
                 agentId={result.provision.agentId}
                 assistantName={result.graph.assistant.name}
                 businessName={result.graph.business.name}
                 guardrails={result.graph.guardrails?.join("; ")}
                 objective={result.graph.objective?.goal}
+                languages={result.graph.languages}
+                novaDefault
               />
-            )}
+            ) : result.provision && !result.provision.linked ? (
+              <div style={{ ...panel, background: "var(--coral-soft)" }}>
+                <strong>WebRTC talk needs a linked product account.</strong>
+                <p style={{ margin: "6px 0 0", fontSize: 13 }}>{result.provision.message}</p>
+                <p style={{ margin: "6px 0 0", fontSize: 12, color: "var(--ink-soft)" }}>
+                  Matching is by email: the Labs key must belong to{" "}
+                  <code style={code}>sa9457@nyu.edu</code>. Then run{" "}
+                  <code style={code}>npm run link -- --create</code> and rebuild.
+                </p>
+              </div>
+            ) : null}
 
             {/* call status */}
             {result.call && (

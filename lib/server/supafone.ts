@@ -101,6 +101,11 @@ function apiKey(): string {
   return key;
 }
 
+/** app.supafone.ai account the Labs key must be issued to. Matching is by email. */
+export function expectedAccountEmail(): string {
+  return (process.env.SUPAFONE_ACCOUNT_EMAIL ?? "sa9457@nyu.edu").trim().toLowerCase();
+}
+
 /** Cached session token (minted from the API key) for builder-family routes. */
 let sessionToken: string | null = null;
 let sessionTokenAt = 0;
@@ -459,10 +464,20 @@ export async function whisperDirective(params: {
   transcript: string;
   guardrails?: string;
   objective?: string;
+  /** BCP-47 tags from nova-3 (or the scraped language profile). Directives follow the caller. */
+  languages?: string[];
 }): Promise<WhisperResult> {
+  const langs = (params.languages ?? []).map((l) => l.trim()).filter(Boolean);
+  const liveLang = langs.filter((l) => !/^en(-|$)/i.test(l));
   const rules = [
     params.objective ? `Call objective:\n${params.objective}` : "",
     params.guardrails ? `Operator rules:\n${params.guardrails}` : "",
+    langs.length
+      ? `Detected caller languages: ${langs.join(", ")}. Write the directive in the caller's current language.`
+      : "",
+    liveLang.length
+      ? "The caller is not in English — do not coach in English unless they switched back."
+      : "",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -891,7 +906,14 @@ export function createFactoryAgent(params: {
   voice?: string;
   areaCode?: string;
   labs?: boolean;
+  /** Voice Watcher / SecondMind (SDK 0.4.6+). Default on. */
+  voiceWatcher?: boolean;
+  voiceWatcherModel?: string;
+  /** Up to four approved language profiles for mid-call switching. */
+  languages?: string[];
 }): Promise<Json> {
+  const watcherOn = params.voiceWatcher ?? params.labs ?? true;
+  const watcherModel = params.voiceWatcherModel ?? "gemma";
   return factory("/agents", {
     method: "POST",
     body: {
@@ -910,10 +932,15 @@ export function createFactoryAgent(params: {
       ...(params.greeting ? { greeting: params.greeting, begin_message: params.greeting } : {}),
       ...(params.industry ? { industry: params.industry } : {}),
       ...(params.voice ? { voice: params.voice } : {}),
+      ...(params.languages?.length ? { languages: params.languages.slice(0, 4) } : {}),
       ...(params.areaCode
         ? { number: { search: { area_code: params.areaCode, areaCode: params.areaCode } } }
         : {}),
-      labs: { enabled: params.labs ?? true },
+      // New Voice Watcher flag (and labs alias) — see labs.supafone.ai/docs
+      voice_watcher: watcherOn,
+      voiceWatcher: watcherOn,
+      voice_watcher_model: watcherModel,
+      labs: { enabled: watcherOn, model: watcherModel },
     },
   });
 }

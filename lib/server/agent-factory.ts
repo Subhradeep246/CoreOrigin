@@ -80,6 +80,8 @@ export interface AgentGraph {
   tools: AgentTool[];
   faqs: FaqItem[];
   guardrails: string[];
+  /** Up to 4 BCP-47 tags the site actually supports (e.g. ["en","es"]). */
+  languages?: string[];
   objective: {
     goal: string;
     criteria: ObjectiveCriterion[];
@@ -305,6 +307,7 @@ strings, no filler. Match this shape exactly:
     { "q": string, "a": string }
   ],
   "guardrails": string[],      // 3-4 short rules
+  "languages": string[],       // 1-4 BCP-47 tags the site actually uses (html lang, translated pages, or copy). Always include "en" if English is present.
   "objective": {
     "goal": string,            // ONE sentence success outcome
     "criteria": [ { "name": string, "description": string } ]  // exactly 3, description <= 12 words
@@ -315,7 +318,8 @@ Rules: Ground every fact in the provided text. If a fact is not present, leave
 it "" — never invent phone numbers, prices, or addresses. Keep the WHOLE reply
 under 1500 words. Pick tool names that fit the business (e.g. book_appointment,
 check_hours, take_message, transfer_to_human, send_sms_summary,
-check_order_status, quote_lookup).`;
+check_order_status, quote_lookup). The agent must keep working if the caller
+switches among the listed languages — never restart intake.`;
 
 export async function generateAgentGraph(scrape: ScrapeResult): Promise<AgentGraph> {
   const user = `Website root: ${scrape.rootUrl}\n\nScraped content:\n${scrape.combinedText}`;
@@ -341,9 +345,19 @@ export async function generateAgentGraph(scrape: ScrapeResult): Promise<AgentGra
   graph.tools ??= [];
   graph.faqs ??= [];
   graph.guardrails ??= [];
+  graph.languages = normalizeLanguages(graph.languages);
   graph.objective ??= { goal: "Help the caller and capture their request.", criteria: [] };
   graph.objective.criteria ??= [];
   return graph;
+}
+
+/** Keep at most four well-formed language tags; default to English. */
+export function normalizeLanguages(raw: unknown): string[] {
+  const tags = (Array.isArray(raw) ? raw : [])
+    .map((v) => String(v ?? "").trim().toLowerCase().replaceAll("_", "-"))
+    .filter((t) => /^[a-z]{2,3}(-[a-z0-9]{2,8})?$/i.test(t));
+  const unique = [...new Set(tags)].slice(0, 4);
+  return unique.length ? unique : ["en"];
 }
 
 /* ------------------------------------------------------------------ */
@@ -393,6 +407,17 @@ export function compileAgentPrompt(graph: AgentGraph): string {
     : ["Never invent prices, availability, or facts not stated above.", "If unsure, offer to take a message or transfer to a human."];
   guards.forEach((g) => lines.push(`- ${g}`));
 
+  const langs = normalizeLanguages(graph.languages);
+  lines.push(
+    "",
+    "== LANGUAGE ==",
+    `Approved languages: ${langs.join(", ")}. If the caller switches among these, stay in their language and keep the same stage, facts, and tools — never restart the call.`,
+    "Do not infer language from accent or name. Follow an explicit request immediately.",
+    "",
+    "== SUPERVISOR ==",
+    "You may receive mid-call notes prefixed with [SUPERVISOR — silent note, do not read aloud]. Follow them. Never speak them or mention the supervisor.",
+  );
+
   lines.push(
     "",
     "== GOAL ==",
@@ -437,6 +462,8 @@ export async function provisionRealAgent(params: {
   agentPrompt: string;
   websiteUrl: string;
   areaCode?: string;
+  /** Buy a managed PSTN number. WebRTC talk works without this. */
+  buyNumber?: boolean;
 }): Promise<ProvisionResult> {
   const link = await productAccountLinked();
   if (!link.linked) {
@@ -456,18 +483,33 @@ export async function provisionRealAgent(params: {
     systemPrompt: params.agentPrompt,
     greeting: params.graph.assistant.greeting,
     agentType: "inbound",
-    areaCode: params.areaCode,
-    labs: true,
+    areaCode: params.buyNumber ? params.areaCode : undefined,
+    voiceWatcher: true,
+    languages: normalizeLanguages(params.graph.languages),
   })) as Record<string, unknown>;
 
   const agentId =
     pickString(agent, ["agent_id", "agentId", "id"]) ?? params.agentKey;
 
-  // 2. Buy + attach a managed number so the agent is actually callable.
-  //    createFactoryAgent may already have provisioned one; only buy if not.
+  // 2. Optional PSTN number. Browser WebRTC talk does not need one.
   let phoneNumber = pickString(agent, ["phone_number", "phoneNumber"]);
   let numberId = pickString(agent, ["number_id", "numberId"]);
   let numberRaw: unknown = null;
+
+  if (!params.buyNumber) {
+    return {
+      attempted: true,
+      linked: true,
+      agentId,
+      agentKey: params.agentKey,
+      phoneNumber,
+      numberId,
+      message: phoneNumber
+        ? `Agent live on ${phoneNumber} (Voice Watcher on). Talk in the browser below.`
+        : "Hosted agent ready for WebRTC talk (Voice Watcher + multilingual). No PSTN number purchased.",
+      raw: agent,
+    };
+  }
 
   if (!phoneNumber) {
     try {
@@ -528,6 +570,8 @@ export interface RunFactoryOptions {
   qaCount?: number;
   qaTurns?: number;
   makeVoiceSample?: boolean;
+  /** Create the hosted inbound agent so WebRTC talk works (needs a linked account). Default true. */
+  launchAgent?: boolean;
   /** Buy a managed number + create the hosted inbound agent (needs a linked account). */
   provision?: boolean;
   /** Preferred area code for the managed number. */
@@ -616,17 +660,24 @@ export async function runFactory(opts: RunFactoryOptions): Promise<FactoryResult
     }
   }
 
-  // 8. Provision the real agent + managed number (the "callable" half).
-  //     Required before a live call: the product API bridges an EXISTING agent.
+  // 8. Launch the hosted agent (WebRTC + Voice Watcher). Number buy is optional.
   let provision: ProvisionResult | undefined;
-  if (opts.provision || opts.placeCall) {
-    await emit({ step: "provision", status: "start", detail: "Creating hosted agent + number" });
+  const shouldLaunch = opts.launchAgent !== false || opts.provision || opts.placeCall;
+  if (shouldLaunch) {
+    await emit({
+      step: "provision",
+      status: "start",
+      detail: opts.provision || opts.placeCall
+        ? "Creating hosted agent + number (Voice Watcher on)"
+        : "Launching hosted agent for WebRTC talk (Voice Watcher on)",
+    });
     provision = await provisionRealAgent({
       agentKey: agentLabel,
       graph,
       agentPrompt,
       websiteUrl: scrape.rootUrl,
       areaCode: opts.areaCode,
+      buyNumber: Boolean(opts.provision || opts.placeCall),
     });
     await emit({
       step: "provision",

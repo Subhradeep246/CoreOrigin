@@ -13,7 +13,7 @@ import { runFactory, type FactoryEvent } from "@/lib/server/agent-factory";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 180;
 
 interface FactoryBody {
   url?: string;
@@ -21,6 +21,7 @@ interface FactoryBody {
   call?: boolean;
   voice?: boolean;
   qa?: boolean;
+  launchAgent?: boolean;
   provision?: boolean;
   areaCode?: string;
 }
@@ -63,6 +64,7 @@ export async function POST(req: NextRequest) {
           qaCount: 3,
           qaTurns: 2,
           makeVoiceSample: body.voice === true,
+          launchAgent: body.launchAgent !== false,
           provision: body.provision === true,
           areaCode: body.areaCode?.trim() || undefined,
           placeCall: body.call === true,
