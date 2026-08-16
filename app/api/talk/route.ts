@@ -9,7 +9,7 @@
  */
 
 import { NextRequest } from "next/server";
-import { listProductAgents, startBrowserCall } from "@/lib/server/supafone";
+import { deleteHostedAgent, listProductAgents, startBrowserCall } from "@/lib/server/supafone";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,4 +58,38 @@ export async function POST(req: NextRequest) {
     maxDurationSeconds: session.maxDurationSeconds,
     freeCallsRemaining: session.freeCallsRemaining,
   });
+}
+
+/**
+ * DELETE /api/talk — free the trial's single hosted-agent slot.
+ * Body: { agentId?: string, agentKey?: string }
+ */
+export async function DELETE(req: NextRequest) {
+  if (!process.env.SUPAFONE_LABS_API_KEY) {
+    return Response.json(
+      { error: "SUPAFONE_LABS_API_KEY is not configured on the server." },
+      { status: 503 },
+    );
+  }
+
+  let agentId = "";
+  let agentKey = "";
+  try {
+    const body = (await req.json()) as { agentId?: string; agentKey?: string };
+    agentId = (body.agentId ?? "").trim();
+    agentKey = (body.agentKey ?? "").trim();
+  } catch {
+    return Response.json({ error: "Invalid JSON body." }, { status: 400 });
+  }
+
+  const target = agentKey || agentId;
+  if (!target) {
+    return Response.json({ error: "agentId or agentKey is required." }, { status: 400 });
+  }
+
+  const result = await deleteHostedAgent(target);
+  return Response.json(
+    { ok: result.ok, deleted: result.deleted, detail: result.detail },
+    { status: result.ok ? 200 : result.status === 400 ? 400 : 502 },
+  );
 }

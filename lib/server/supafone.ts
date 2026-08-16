@@ -103,7 +103,7 @@ function apiKey(): string {
 
 /** app.supafone.ai account the Labs key must be issued to. Matching is by email. */
 export function expectedAccountEmail(): string {
-  return (process.env.SUPAFONE_ACCOUNT_EMAIL ?? "sa9457@nyu.edu").trim().toLowerCase();
+  return (process.env.SUPAFONE_ACCOUNT_EMAIL ?? "subhradeep246@gmail.com").trim().toLowerCase();
 }
 
 /** Cached session token (minted from the API key) for builder-family routes. */
@@ -820,7 +820,7 @@ const FACTORY_BASE = `${PRODUCT_BASE}/api/v1/labs`;
 
 async function factory<T = Json>(
   path: string,
-  opts: { method?: "GET" | "POST" | "DELETE"; body?: unknown } = {},
+  opts: { method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; body?: unknown } = {},
 ): Promise<T> {
   const headers: Record<string, string> = { Authorization: `Bearer ${apiKey()}` };
   if (opts.body !== undefined) headers["Content-Type"] = "application/json";
@@ -889,12 +889,12 @@ export function getFactoryAgent(agentKey: string): Promise<Json> {
   return factory(`/agents/${encodeURIComponent(agentKey)}`);
 }
 
-/**
- * Create a hosted inbound Supafone agent — the "launch a working voice agent"
- * half of the factory. `websiteUrl` lets Supafone do its own scrape-first
- * onboarding in addition to the knowledge we compiled.
- */
-export function createFactoryAgent(params: {
+/** Trial accounts typically allow one hosted agent; delete frees the slot. */
+export function deleteFactoryAgent(agentKey: string): Promise<Json> {
+  return factory(`/agents/${encodeURIComponent(agentKey)}`, { method: "DELETE" });
+}
+
+export type HostedAgentParams = {
   agentKey: string;
   name: string;
   assistantName?: string;
@@ -906,42 +906,103 @@ export function createFactoryAgent(params: {
   voice?: string;
   areaCode?: string;
   labs?: boolean;
-  /** Voice Watcher / SecondMind (SDK 0.4.6+). Default on. */
   voiceWatcher?: boolean;
   voiceWatcherModel?: string;
-  /** Up to four approved language profiles for mid-call switching. */
   languages?: string[];
-}): Promise<Json> {
+};
+
+function hostedAgentBody(params: HostedAgentParams): Json {
   const watcherOn = params.voiceWatcher ?? params.labs ?? true;
   const watcherModel = params.voiceWatcherModel ?? "gemma";
+  return {
+    agent_key: params.agentKey,
+    agentKey: params.agentKey,
+    name: params.name,
+    agent_type: params.agentType ?? "inbound",
+    agentType: params.agentType ?? "inbound",
+    ...(params.assistantName
+      ? { assistant_name: params.assistantName, assistantName: params.assistantName }
+      : {}),
+    ...(params.websiteUrl ? { website_url: params.websiteUrl, websiteUrl: params.websiteUrl } : {}),
+    ...(params.systemPrompt
+      ? { system_prompt: params.systemPrompt, systemPrompt: params.systemPrompt }
+      : {}),
+    ...(params.greeting ? { greeting: params.greeting, begin_message: params.greeting } : {}),
+    ...(params.industry ? { industry: params.industry } : {}),
+    ...(params.voice ? { voice: params.voice } : {}),
+    ...(params.languages?.length
+      ? { languages: params.languages.slice(0, 4), language: params.languages[0] }
+      : {}),
+    ...(params.areaCode
+      ? { number: { search: { area_code: params.areaCode, areaCode: params.areaCode } } }
+      : {}),
+    voice_watcher: watcherOn,
+    voiceWatcher: watcherOn,
+    voice_watcher_model: watcherModel,
+    labs: { enabled: watcherOn, model: watcherModel },
+  };
+}
+
+/**
+ * Rewrite an existing hosted agent in place (same id / WebRTC slot) for a new
+ * company scrape. Tries Labs PUT, then PATCH, then the product agent PUT.
+ */
+export async function updateFactoryAgent(
+  occupant: { key: string; id: string },
+  params: HostedAgentParams,
+): Promise<Json> {
+  const body = hostedAgentBody({ ...params, agentKey: occupant.key });
+  const attempts: Array<{ method: "PUT" | "PATCH"; path: string; base?: "labs" | "product" }> = [
+    { method: "PUT", path: `/agents/${encodeURIComponent(occupant.key)}` },
+    { method: "PATCH", path: `/agents/${encodeURIComponent(occupant.key)}` },
+  ];
+
+  let last: SupafoneError | null = null;
+  for (const attempt of attempts) {
+    try {
+      return await factory(attempt.path, { method: attempt.method, body });
+    } catch (e) {
+      if (e instanceof SupafoneError) last = e;
+      else throw e;
+    }
+  }
+
+  const productPayload = {
+    name: params.name,
+    assistant_name: params.assistantName,
+    website_url: params.websiteUrl,
+    system_prompt: params.systemPrompt,
+    greeting: params.greeting,
+    begin_message: params.greeting,
+    languages: params.languages,
+    labs: body.labs,
+  };
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${apiKey()}`,
+    "Content-Type": "application/json",
+  };
+  for (const method of ["PUT", "PATCH"] as const) {
+    const res = await fetch(`${PRODUCT_BASE}/api/v1/agents/${encodeURIComponent(occupant.id)}`, {
+      method,
+      headers,
+      body: JSON.stringify(productPayload),
+    });
+    const text = await res.text();
+    if (res.ok) return safeJson(text) as Json;
+    last = new SupafoneError(`${method} /api/v1/agents/${occupant.id} -> ${res.status}`, res.status, text);
+  }
+  throw last ?? new SupafoneError(`update agent ${occupant.key} failed`, 502, "");
+}
+
+/**
+ * Create a hosted inbound Supafone agent — the "launch a working voice agent"
+ * half of the factory. `websiteUrl` lets Supafone do its own scrape-first
+ * onboarding in addition to the knowledge we compiled.
+ */
+export function createFactoryAgent(params: HostedAgentParams): Promise<Json> {
   return factory("/agents", {
     method: "POST",
-    body: {
-      agent_key: params.agentKey,
-      agentKey: params.agentKey,
-      name: params.name,
-      agent_type: params.agentType ?? "inbound",
-      agentType: params.agentType ?? "inbound",
-      ...(params.assistantName
-        ? { assistant_name: params.assistantName, assistantName: params.assistantName }
-        : {}),
-      ...(params.websiteUrl ? { website_url: params.websiteUrl, websiteUrl: params.websiteUrl } : {}),
-      ...(params.systemPrompt
-        ? { system_prompt: params.systemPrompt, systemPrompt: params.systemPrompt }
-        : {}),
-      ...(params.greeting ? { greeting: params.greeting, begin_message: params.greeting } : {}),
-      ...(params.industry ? { industry: params.industry } : {}),
-      ...(params.voice ? { voice: params.voice } : {}),
-      ...(params.languages?.length ? { languages: params.languages.slice(0, 4) } : {}),
-      ...(params.areaCode
-        ? { number: { search: { area_code: params.areaCode, areaCode: params.areaCode } } }
-        : {}),
-      // New Voice Watcher flag (and labs alias) — see labs.supafone.ai/docs
-      voice_watcher: watcherOn,
-      voiceWatcher: watcherOn,
-      voice_watcher_model: watcherModel,
-      labs: { enabled: watcherOn, model: watcherModel },
-    },
+    body: hostedAgentBody(params),
   });
 }
 
@@ -983,6 +1044,8 @@ export interface ProductAgentSummary {
   assistantName: string;
   businessName: string;
   phoneNumber: string | null;
+  /** Labs agent_key used for create/delete on /api/v1/labs/agents. */
+  agentKey: string;
   /** Operator rules the watcher should enforce (from the agent's do-not-say list). */
   guardrails: string;
   /** What a successful call looks like, for the watcher to steer toward. */
@@ -1003,17 +1066,76 @@ export async function listProductAgents(): Promise<ProductAgentSummary[]> {
   if (!res.ok) return [];
   const data = safeJson(await res.text()) as Json;
   const raw = Array.isArray(data) ? data : ((data.agents ?? data.items ?? []) as Json[]);
+
+  let factoryKeys: { id: string; key: string }[] = [];
+  try {
+    const listed = (await listFactoryAgents()) as Json;
+    const rows = (listed.agents ?? listed.items ?? []) as Json[];
+    factoryKeys = rows.map((a) => ({
+      id: String(a.id ?? a.agent_id ?? a.agentId ?? ""),
+      key: String(a.agent_key ?? a.agentKey ?? ""),
+    }));
+  } catch {
+    factoryKeys = [];
+  }
+
   return raw
-    .map((a) => ({
-      id: String(a.id ?? a.agent_id ?? ""),
-      name: String(a.name ?? a.agent_key ?? "Untitled agent"),
-      assistantName: String(a.assistant_name ?? "the assistant"),
-      businessName: String(a.business_name ?? a.name ?? ""),
-      phoneNumber: (a.phone_number as string) ?? null,
-      guardrails: joinRules(a.do_not_say),
-      objective: String((a.labs as Json | undefined)?.goal ?? ""),
-    }))
+    .map((a) => {
+      const id = String(a.id ?? a.agent_id ?? "");
+      const keyFromRow = String(a.agent_key ?? a.agentKey ?? "");
+      const keyFromLabs = factoryKeys.find((f) => f.id && f.id === id)?.key ?? "";
+      return {
+        id,
+        name: String(a.name ?? a.agent_key ?? "Untitled agent"),
+        assistantName: String(a.assistant_name ?? "the assistant"),
+        businessName: String(a.business_name ?? a.name ?? ""),
+        phoneNumber: (a.phone_number as string) ?? null,
+        agentKey: keyFromRow || keyFromLabs,
+        guardrails: joinRules(a.do_not_say),
+        objective: String((a.labs as Json | undefined)?.goal ?? ""),
+      };
+    })
     .filter((a) => a.id);
+}
+
+/**
+ * Delete a hosted agent so the trial's single slot is free for the next build.
+ * Accepts a product UUID or a Labs agent_key.
+ */
+export async function deleteHostedAgent(idOrKey: string): Promise<{
+  ok: boolean;
+  status: number;
+  deleted: string;
+  detail: string;
+}> {
+  const needle = idOrKey.trim();
+  if (!needle) {
+    return { ok: false, status: 400, deleted: "", detail: "agentId or agentKey is required." };
+  }
+
+  let key = needle;
+  try {
+    const listed = (await listFactoryAgents()) as Json;
+    const rows = (listed.agents ?? listed.items ?? []) as Json[];
+    const match = rows.find((a) => {
+      const id = String(a.id ?? a.agent_id ?? a.agentId ?? "");
+      const k = String(a.agent_key ?? a.agentKey ?? "");
+      return needle === id || needle === k;
+    });
+    if (match) key = String(match.agent_key ?? match.agentKey ?? key);
+  } catch {
+    /* list failed — try deleting the token as a key anyway */
+  }
+
+  try {
+    await deleteFactoryAgent(key);
+    return { ok: true, status: 200, deleted: key, detail: `Deleted ${key}. The trial slot is free.` };
+  } catch (e) {
+    if (e instanceof SupafoneError) {
+      return { ok: false, status: e.status || 502, deleted: key, detail: e.body.slice(0, 300) || e.message };
+    }
+    return { ok: false, status: 502, deleted: key, detail: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 export interface BrowserCallSession {

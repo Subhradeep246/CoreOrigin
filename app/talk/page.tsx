@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { TalkToAgent } from "@/components/TalkToAgent";
+import { DeleteAgentButton } from "@/components/DeleteAgentButton";
 
 interface Agent {
   id: string;
@@ -18,6 +19,7 @@ interface Agent {
   assistantName: string;
   businessName: string;
   phoneNumber: string | null;
+  agentKey?: string;
   guardrails: string;
   objective: string;
 }
@@ -55,8 +57,8 @@ export default function TalkPage() {
     <main style={{ maxWidth: 720, margin: "0 auto", padding: "48px 20px 80px" }}>
       <h1 style={{ margin: 0, fontSize: 30, letterSpacing: -0.5 }}>Talk to an agent</h1>
       <p style={{ color: "var(--ink-soft)", fontSize: 14, lineHeight: 1.6 }}>
-        A real voice conversation in the browser over WebRTC — microphone in, agent audio out,
-        live transcripts. No phone number required, and it spends no Labs oracle minutes.
+        A real voice conversation in the browser over WebRTC. Scrape a new company to restructure
+        this same hosted agent in place — no delete needed between sites.
       </p>
 
       {loading && <p style={{ fontSize: 13 }}>Loading agents…</p>}
@@ -104,6 +106,14 @@ export default function TalkPage() {
                 businessName={agent.businessName || agent.name}
                 guardrails={agent.guardrails}
                 objective={agent.objective}
+              />
+              <DeleteAgentButton
+                agentId={agent.id}
+                agentKey={agent.agentKey}
+                onDeleted={() => {
+                  setSelected("");
+                  void load();
+                }}
               />
             </>
           )}

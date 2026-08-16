@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import { TalkToAgent } from "@/components/TalkToAgent";
+import { DeleteAgentButton } from "@/components/DeleteAgentButton";
 
 /* ---- shapes mirrored loosely from lib/server/agent-factory ---- */
 
@@ -74,7 +75,7 @@ const STEP_LABELS: Record<string, string> = {
   objective: "Set success objective",
   qa: "Adversarial QA suite",
   voice: "Render voice sample",
-  provision: "Launch hosted agent (WebRTC + Voice Watcher)",
+  provision: "Restructure hosted agent for this company",
   call: "Place live call",
   complete: "Done",
 };
@@ -198,9 +199,9 @@ export default function FactoryPage() {
         </h1>
         <p style={lede}>
           Paste a company website. Supafone scrapes the site, builds a knowledge base, generates the
-          agent graph and tools, launches a hosted agent with Voice Watcher and multilingual
-          continuity, and lets you talk to it in the browser over WebRTC — a callable receptionist
-          in under two minutes. Buying a PSTN number is optional.
+          agent graph and tools, then restructures the one hosted trial agent for that company
+          (same WebRTC slot, new prompt, languages, and Voice Watcher). Talk in the browser — no
+          delete required between companies. Buying a PSTN number is optional.
         </p>
 
         {/* input card */}
@@ -400,7 +401,7 @@ export default function FactoryPage() {
                   <p style={{ margin: "6px 0 0", fontSize: 13 }}>{result.provision.message}</p>
                   {!result.provision.linked ? (
                     <p style={{ margin: "6px 0 0", fontSize: 12, color: "var(--ink-soft)" }}>
-                      The product account is <code style={code}>sa9457@nyu.edu</code>. Use a Labs key
+                      The product account is <code style={code}>subhradeep246@gmail.com</code>. Use a Labs key
                       issued to that email, then <code style={code}>npm run link -- --create</code>.
                     </p>
                   ) : (
@@ -415,22 +416,45 @@ export default function FactoryPage() {
 
             {/* Live browser voice — works with no telephony and no number. */}
             {result.provision?.agentId ? (
-              <TalkToAgent
-                agentId={result.provision.agentId}
-                assistantName={result.graph.assistant.name}
-                businessName={result.graph.business.name}
-                guardrails={result.graph.guardrails?.join("; ")}
-                objective={result.graph.objective?.goal}
-                languages={result.graph.languages}
-                novaDefault
-              />
+              <>
+                <TalkToAgent
+                  agentId={result.provision.agentId}
+                  assistantName={result.graph.assistant.name}
+                  businessName={result.graph.business.name}
+                  guardrails={result.graph.guardrails?.join("; ")}
+                  objective={result.graph.objective?.goal}
+                  languages={result.graph.languages}
+                  novaDefault
+                />
+                <DeleteAgentButton
+                  agentId={result.provision.agentId}
+                  agentKey={result.provision.agentKey}
+                  label="Delete agent (optional — only if you want a blank slot)"
+                  onDeleted={() =>
+                    setResult((prev) =>
+                      prev?.provision
+                        ? {
+                            ...prev,
+                            provision: {
+                              ...prev.provision,
+                              agentId: undefined,
+                              agentKey: undefined,
+                              phoneNumber: undefined,
+                              message: "Agent deleted. The trial slot is free — scrape the next site.",
+                            },
+                          }
+                        : prev,
+                    )
+                  }
+                />
+              </>
             ) : result.provision && !result.provision.linked ? (
               <div style={{ ...panel, background: "var(--coral-soft)" }}>
                 <strong>WebRTC talk needs a linked product account.</strong>
                 <p style={{ margin: "6px 0 0", fontSize: 13 }}>{result.provision.message}</p>
                 <p style={{ margin: "6px 0 0", fontSize: 12, color: "var(--ink-soft)" }}>
                   Matching is by email: the Labs key must belong to{" "}
-                  <code style={code}>sa9457@nyu.edu</code>. Then run{" "}
+                  <code style={code}>subhradeep246@gmail.com</code>. Then run{" "}
                   <code style={code}>npm run link -- --create</code> and rebuild.
                 </p>
               </div>

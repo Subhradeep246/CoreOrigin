@@ -20,8 +20,11 @@ import {
   tts,
   callHuman,
   createFactoryAgent,
+  updateFactoryAgent,
+  listFactoryAgents,
   provisionPhoneNumber,
   productAccountLinked,
+  SupafoneError,
   type ObjectiveCriterion,
 } from "@/lib/server/supafone";
 
@@ -474,22 +477,61 @@ export async function provisionRealAgent(params: {
     };
   }
 
-  // 1. Create the hosted inbound agent from the compiled prompt.
-  const agent = (await createFactoryAgent({
+  // 1. Reuse the trial's single hosted agent when one exists: rewrite its
+  //    prompt, greeting, languages, and identity for this company. Create only
+  //    if the slot is empty. Never delete just to launch a new scrape.
+  const hosted = {
     agentKey: params.agentKey,
     name: params.graph.business.name,
     assistantName: params.graph.assistant.name,
     websiteUrl: params.websiteUrl,
     systemPrompt: params.agentPrompt,
     greeting: params.graph.assistant.greeting,
-    agentType: "inbound",
+    agentType: "inbound" as const,
     areaCode: params.buyNumber ? params.areaCode : undefined,
     voiceWatcher: true,
     languages: normalizeLanguages(params.graph.languages),
-  })) as Record<string, unknown>;
+  };
+
+  let agent: Record<string, unknown>;
+  let restructured: string | undefined;
+  const occupant = await occupyingAgent();
+
+  if (occupant) {
+    try {
+      agent = {
+        id: occupant.id,
+        agent_id: occupant.id,
+        agent_key: occupant.key,
+        ...((await updateFactoryAgent(occupant, hosted)) as Record<string, unknown>),
+      };
+      restructured = occupant.name;
+    } catch (e) {
+      const detail = e instanceof SupafoneError ? paymentDetail(e) : (e as Error).message;
+      return {
+        attempted: true,
+        linked: true,
+        agentId: occupant.id,
+        agentKey: occupant.key,
+        message: `Could not restructure hosted agent "${occupant.name}": ${detail}`,
+      };
+    }
+  } else {
+    try {
+      agent = (await createFactoryAgent(hosted)) as Record<string, unknown>;
+    } catch (e) {
+      if (!(e instanceof SupafoneError) || e.status !== 402) throw e;
+      return {
+        attempted: true,
+        linked: true,
+        message: `Hosted launch needs product credit (HTTP 402). ${paymentDetail(e)}`,
+      };
+    }
+  }
 
   const agentId =
-    pickString(agent, ["agent_id", "agentId", "id"]) ?? params.agentKey;
+    pickString(agent, ["agent_id", "agentId", "id"]) ?? occupant?.id ?? params.agentKey;
+  const agentKey = occupant?.key ?? params.agentKey;
 
   // 2. Optional PSTN number. Browser WebRTC talk does not need one.
   let phoneNumber = pickString(agent, ["phone_number", "phoneNumber"]);
@@ -501,12 +543,14 @@ export async function provisionRealAgent(params: {
       attempted: true,
       linked: true,
       agentId,
-      agentKey: params.agentKey,
+      agentKey,
       phoneNumber,
       numberId,
       message: phoneNumber
         ? `Agent live on ${phoneNumber} (Voice Watcher on). Talk in the browser below.`
-        : "Hosted agent ready for WebRTC talk (Voice Watcher + multilingual). No PSTN number purchased.",
+        : restructured
+          ? `Restructured hosted agent for ${params.graph.business.name} (was "${restructured}"). Same WebRTC slot — talk below.`
+          : "Hosted agent ready for WebRTC talk (Voice Watcher + multilingual). No PSTN number purchased.",
       raw: agent,
     };
   }
@@ -561,6 +605,31 @@ function pickString(obj: Record<string, unknown>, keys: string[]): string | unde
     }
   }
   return undefined;
+}
+
+async function occupyingAgent(): Promise<{ key: string; name: string; id: string } | null> {
+  const listed = (await listFactoryAgents()) as Record<string, unknown>;
+  const raw = (listed.agents ?? listed.items ?? []) as Record<string, unknown>[];
+  if (!Array.isArray(raw) || !raw.length) return null;
+  const a = raw[0];
+  const key = String(a.agent_key ?? a.agentKey ?? "");
+  if (!key) return null;
+  return {
+    key,
+    name: String(a.name ?? key),
+    id: String(a.id ?? a.agent_id ?? a.agentId ?? key),
+  };
+}
+
+function paymentDetail(err: SupafoneError): string {
+  try {
+    const parsed = JSON.parse(err.body) as Record<string, unknown>;
+    if (typeof parsed.detail === "string" && parsed.detail) return parsed.detail;
+    if (typeof parsed.message === "string" && parsed.message) return parsed.message;
+  } catch {
+    /* body is not JSON */
+  }
+  return err.body.slice(0, 240) || err.message;
 }
 
 export interface RunFactoryOptions {
@@ -669,7 +738,7 @@ export async function runFactory(opts: RunFactoryOptions): Promise<FactoryResult
       status: "start",
       detail: opts.provision || opts.placeCall
         ? "Creating hosted agent + number (Voice Watcher on)"
-        : "Launching hosted agent for WebRTC talk (Voice Watcher on)",
+        : "Restructure hosted agent for this company (Voice Watcher on)",
     });
     provision = await provisionRealAgent({
       agentKey: agentLabel,
@@ -678,6 +747,16 @@ export async function runFactory(opts: RunFactoryOptions): Promise<FactoryResult
       websiteUrl: scrape.rootUrl,
       areaCode: opts.areaCode,
       buyNumber: Boolean(opts.provision || opts.placeCall),
+    }).catch(async (e) => {
+      const message =
+        e instanceof SupafoneError
+          ? `Hosted launch failed (HTTP ${e.status}). ${e.body.slice(0, 240)}`
+          : `Hosted launch failed: ${e instanceof Error ? e.message : String(e)}`;
+      return {
+        attempted: true,
+        linked: true,
+        message,
+      } satisfies ProvisionResult;
     });
     await emit({
       step: "provision",
